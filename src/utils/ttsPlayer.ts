@@ -96,6 +96,9 @@ export interface SpeechPlayerOptions {
   rate?: number;
 }
 
+/** Retain hard references in JS so Chromium garbage collection never drops active utterances */
+const activeUtterances = new Set<SpeechSynthesisUtterance>();
+
 export class SpeechPlayer {
   private blocks: PreparedBlock[] = [];
   /** Every spoken sentence of the passage, flattened for linear navigation. */
@@ -142,6 +145,7 @@ export class SpeechPlayer {
   private pauseVerify: number | null = null;
   private advanceTimer: number | null = null;
   private speakDelayTimer: number | null = null;
+  private startupTimer: number | null = null;
 
   constructor(options: SpeechPlayerOptions = {}) {
     this.onUpdate = options.onUpdate;
@@ -338,12 +342,23 @@ export class SpeechPlayer {
       this.advanceTimer = null;
     }
     if (this.status !== 'playing') return;
-    // Brief natural pause between sentences (~160ms) which also gives the browser speech queue time to clear.
+
+    const nextFlatIdx = this.flatIdx + 1;
+    if (nextFlatIdx >= this.flat.length) {
+      this.finish();
+      return;
+    }
+
+    const currentEntry = this.flat[this.flatIdx];
+    const nextEntry = this.flat[nextFlatIdx];
+    // Slightly longer pause when transitioning to a new paragraph for natural cadence
+    const delay = currentEntry && nextEntry && currentEntry.blockIndex !== nextEntry.blockIndex ? 350 : 160;
+
     this.advanceTimer = window.setTimeout(() => {
       this.advanceTimer = null;
       if (this.status !== 'playing') return;
-      this.begin(this.flatIdx + 1, 0, true);
-    }, 160);
+      this.begin(nextFlatIdx, 0, true);
+    }, delay);
   }
 
   private finish(): void {
@@ -376,6 +391,7 @@ export class SpeechPlayer {
     }
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    activeUtterances.add(utterance);
     utterance.rate = this.rate;
     utterance.pitch = 1;
     const voice = getNaturalVoice();
@@ -398,8 +414,23 @@ export class SpeechPlayer {
     this.startTicker();
     this.setKeepAlive(true);
 
+    if (this.startupTimer !== null) {
+      window.clearTimeout(this.startupTimer);
+    }
+    this.startupTimer = window.setTimeout(() => {
+      this.startupTimer = null;
+      if (this.utterance === utterance && !this.isSpeaking) {
+        console.warn('Speech engine startup timed out');
+        this.stop();
+      }
+    }, 6000);
+
     utterance.onstart = () => {
       if (this.utterance !== utterance) return;
+      if (this.startupTimer !== null) {
+        window.clearTimeout(this.startupTimer);
+        this.startupTimer = null;
+      }
       this.isSpeaking = true;
       this.originT = performance.now();
       this.speakingSince = this.originT;
@@ -412,12 +443,14 @@ export class SpeechPlayer {
     };
 
     utterance.onend = () => {
+      activeUtterances.delete(utterance);
       if (this.utterance !== utterance) return;
       this.isSpeaking = false;
       this.advance();
     };
 
     utterance.onerror = (event) => {
+      activeUtterances.delete(utterance);
       if (this.utterance !== utterance) return;
       this.isSpeaking = false;
       // Canceled or interrupted events are expected when switching sentences or stopping.
@@ -497,17 +530,10 @@ export class SpeechPlayer {
     if (!synth || !block || !sentence || !this.estimating) return;
     if (this.paused || this.status !== 'playing') return;
 
-    const now = performance.now();
+    // Do nothing while waiting for audio to start or during sentence-advance pause
+    if (!this.isSpeaking || this.advanceTimer !== null) return;
 
-    // Guard: Audio has not started speaking yet.
-    // Keep highlight on the first word; do not advance through the sentence while silent.
-    if (!this.isSpeaking) {
-      if (!synth.speaking && !synth.pending && now - this.speakingSince > 3500) {
-        // Synthesis never started after 3.5s
-        this.stop();
-      }
-      return;
-    }
+    const now = performance.now();
 
     // Watchdog: audio was speaking, but now neither speaking nor queued, and onend was dropped
     if (!synth.speaking && !synth.pending && now - this.speakingSince > STALL_GRACE_MS) {
@@ -549,6 +575,10 @@ export class SpeechPlayer {
    * and risky (Chromium can drop a queued utterance that follows a cancel).
    */
   private abort(cancelSynth = true): void {
+    if (this.startupTimer !== null) {
+      window.clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+    }
     if (this.advanceTimer !== null) {
       window.clearTimeout(this.advanceTimer);
       this.advanceTimer = null;
@@ -557,6 +587,7 @@ export class SpeechPlayer {
       window.clearTimeout(this.speakDelayTimer);
       this.speakDelayTimer = null;
     }
+    activeUtterances.clear();
     this.utterance = null;
     this.isSpeaking = false;
     this.estimating = false;
