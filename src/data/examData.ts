@@ -37,6 +37,17 @@ export interface VocabCard {
   activityRef: string;
 }
 
+/**
+ * A vocational/business term glossed in place inside a reading text.
+ * `term` must occur verbatim in the paragraph the gloss is attached to; the
+ * reader matches it with word boundaries and highlights every occurrence.
+ */
+export interface GlossaryEntry {
+  term: string;
+  definition: string;
+  thaiMeaning: string;
+}
+
 // Activity 1: Marie Curie Data
 export const activity1Data = {
   title: "Activity 1: Read the story and choose the best answer.",
@@ -369,23 +380,78 @@ export const activity4Data = {
   title: "Activity 4: Read the email and answer the questions",
   email: {
     senderCompany: "Greenfield Chocolate Factory",
+    senderEmail: "marketing@greenfieldchocolate.ca",
     address: "125 Maple Avenue, Vancouver, Canada V6B 2W9",
     date: "October 10th, 2026",
     recipient: "Dear Ms. Wilson,",
+    recipientName: "Ms. Wilson",
+    recipientEmail: "j.wilson@example.com",
     subject: "ANNIVERSARY SALE AND LUCKY DRAW",
     paragraphs: [
-      "As a valued customer, we are delighted to inform you about our upcoming anniversary sale in celebration of our company’s 50th anniversary. We would like you to be among the first to learn about this special event.",
-      "The prices of all chocolates, candies, and snack products will be reduced by 40% from October 15th to October 31st, 2026.",
-      "As part of our annual tradition, we are offering our customers a chance to win a special prize. This year, the grand prize is a three-night stay on Phuket Island, Thailand. The lucky winner will also receive three complimentary luxury dinners and a guided island tour.",
-      "To enter the lucky draw, please purchase a raffle ticket for $15. All proceeds will be donated to local children's charities and educational foundations. Tickets are available through our official Facebook page and website.",
-      "Thank you for your continued support. We look forward to welcoming you to our anniversary celebration and sharing this special occasion with you."
+      {
+        id: 1,
+        text: "As a valued customer, we are delighted to inform you about our upcoming anniversary sale in celebration of our company’s 50th anniversary. We would like you to be among the first to learn about this special event."
+      },
+      {
+        id: 2,
+        text: "The prices of all chocolates, candies, and snack products will be reduced by 40% from October 15th to October 31st, 2026."
+      },
+      {
+        id: 3,
+        text: "As part of our annual tradition, we are offering our customers a chance to win a special prize. This year, the grand prize is a three-night stay on Phuket Island, Thailand. The lucky winner will also receive three complimentary luxury dinners and a guided island tour."
+      },
+      {
+        id: 4,
+        text: "To enter the lucky draw, please purchase a raffle ticket for $15. All proceeds will be donated to local children's charities and educational foundations. Tickets are available through our official Facebook page and website."
+      },
+      {
+        id: 5,
+        text: "Thank you for your continued support. We look forward to welcoming you to our anniversary celebration and sharing this special occasion with you."
+      }
     ],
     closing: "Best regards,",
     signoffName: "Emily Greenfield",
     signoffTitle: "Marketing Director",
     signoffCompany: "Greenfield Chocolate Factory"
   },
-  summaryBox: "Summary: Greenfield Chocolate Factory sends a letter to inform its valued customers about a special sale celebrating the company’s 50th anniversary. From October 15th to 31st, 2026, customers can enjoy a 40% discount on chocolates, candies, and snacks. The company also offers a lucky draw with a three-night stay on Phuket Island as the grand prize. Money from raffle ticket sales will be donated to children’s charities and educational foundations.",
+  summaryBox: "Greenfield Chocolate Factory sends a letter to inform its valued customers about a special sale celebrating the company’s 50th anniversary. From October 15th to 31st, 2026, customers can enjoy a 40% discount on chocolates, candies, and snacks. The company also offers a lucky draw with a three-night stay on Phuket Island as the grand prize. Money from raffle ticket sales will be donated to children’s charities and educational foundations.",
+  glossary: [
+    {
+      term: "anniversary",
+      definition: "A date that is celebrated every year because something important happened on it.",
+      thaiMeaning: "วันครบรอบ"
+    },
+    {
+      term: "grand prize",
+      definition: "The most valuable prize in a competition.",
+      thaiMeaning: "รางวัลใหญ่"
+    },
+    {
+      term: "lucky draw",
+      definition: "A competition in which the winners are chosen by chance rather than by skill.",
+      thaiMeaning: "การจับรางวัล"
+    },
+    {
+      term: "complimentary",
+      definition: "Given free of charge.",
+      thaiMeaning: "ฟรี (ไม่คิดค่าบริการ)"
+    },
+    {
+      term: "raffle ticket",
+      definition: "A numbered ticket sold for a chance to win a prize in a draw.",
+      thaiMeaning: "ตั๋วจับรางวัล"
+    },
+    {
+      term: "proceeds",
+      definition: "The money that is collected from an event, a sale, or an activity.",
+      thaiMeaning: "เงินรายได้จากการขายหรือกิจกรรม"
+    },
+    {
+      term: "foundations",
+      definition: "Organizations that collect money and give it to good causes, such as education.",
+      thaiMeaning: "มูลนิธิ"
+    }
+  ] as GlossaryEntry[],
   questions: [
     {
       id: "act4_q1",

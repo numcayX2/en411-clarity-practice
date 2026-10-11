@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
   BookOpen,
@@ -13,17 +13,12 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { findQuoteRange } from '../utils/textHighlight';
-import {
-  contentOrigin,
-  pillMotion,
-  prepareBlock,
-  rectsToBoxes,
-  snapRangeToTokens,
-  type Box,
-  type PreparedBlock,
-} from '../utils/readingTokens';
+import { prepareBlock, snapRangeToTokens } from '../utils/readingTokens';
 import { SPEECH_RATES, type SpeechRate } from '../utils/ttsPlayer';
 import { useSpeechPlayer } from '../hooks/useSpeechPlayer';
+import { useHighlightLayers } from '../hooks/useHighlightLayers';
+import { ReadingParagraph } from './ReadingParagraph';
+import { ensureVisible } from '../utils/paneScroll';
 import type { AudioPassageConfig } from '../data/marieCurieAudio';
 
 interface Paragraph {
@@ -65,34 +60,6 @@ const FONT_CLASS: Record<FontSize, string> = {
   lg: 'text-lg leading-loose',
 };
 
-/** Horizontal breathing room of the word pill, in px, on each side. */
-const PILL_PAD_X = 3;
-/** Pill height as a multiple of the font size: taller than the glyphs, shorter
- *  than the line box, so it reads as a highlighter stroke rather than a block. */
-const PILL_HEIGHT_RATIO = 1.4;
-const HALO_PAD_X = 6;
-const HALO_PAD_Y = 3;
-
-interface PillState {
-  blockId: number;
-  /** Changes on every line-wrap so React remounts the pill and replays the
-   *  landing animation instead of gliding diagonally across the paragraph. */
-  key: number;
-  snap: boolean;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-interface HaloState {
-  blockId: number;
-  boxes: Box[];
-  /** True when the previous sentence had the same number of lines, so the
-   *  bands may be transitioned instead of snapped. */
-  morph: boolean;
-}
-
 const readStoredHighlight = (): boolean => {
   if (typeof window === 'undefined') return true;
   try {
@@ -100,26 +67,6 @@ const readStoredHighlight = (): boolean => {
     return saved === null ? true : saved === 'true';
   } catch {
     return true;
-  }
-};
-
-/**
- * Scroll the passage pane just enough to reveal `el`.
- *
- * Deliberately not `scrollIntoView()`: Lenis owns window scrolling on this site
- * (see Layout.astro) and fights the browser's smooth scroll, while the passage
- * pane is its own scrollport — so we compute the delta ourselves.
- */
-const ensureVisible = (scroller: HTMLElement, el: HTMLElement, margin = 18): void => {
-  const pane = scroller.getBoundingClientRect();
-  const rect = el.getBoundingClientRect();
-  const behavior: ScrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ? 'auto'
-    : 'smooth';
-  if (rect.top < pane.top + margin) {
-    scroller.scrollTo({ top: scroller.scrollTop + (rect.top - pane.top) - margin, behavior });
-  } else if (rect.bottom > pane.bottom - margin) {
-    scroller.scrollTo({ top: scroller.scrollTop + (rect.bottom - pane.bottom) + margin, behavior });
   }
 };
 
@@ -137,19 +84,9 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
   /** SSR-safe default; the persisted preference is applied after mount (below). */
   const [highlightEnabled, setHighlightEnabled] = useState<boolean>(true);
   const [isMommyVoice, setIsMommyVoice] = useState<boolean>(true);
-  const [pill, setPill] = useState<PillState | null>(null);
-  const [halo, setHalo] = useState<HaloState | null>(null);
-  /** Bumped by the ResizeObserver: any layout change invalidates measurements. */
-  const [layoutTick, setLayoutTick] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const paraRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  /** blockId → (word start offset → span), so measuring never queries the DOM. */
-  const wordEls = useRef<Map<number, Map<number, HTMLElement>>>(new Map());
   const speedRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  /** Paragraph-relative line top of the last measured word (wrap detection). */
-  const lastWordLineRef = useRef<{ blockId: number; top: number } | null>(null);
-  const snapSeqRef = useRef(0);
   const enabledRef = useRef(highlightEnabled);
   enabledRef.current = highlightEnabled;
 
@@ -250,129 +187,23 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
     return () => window.cancelAnimationFrame(frame);
   }, [highlightQuote, highlightParagraphId]);
 
-  useEffect(() => {
-    const pane = containerRef.current;
-    if (!pane) return;
-    const observer = new ResizeObserver(() => setLayoutTick((tick) => tick + 1));
-    observer.observe(pane);
-    return () => observer.disconnect();
-  }, []);
-
-  const registerWordEl = useCallback((blockId: number, start: number, el: HTMLElement | null) => {
-    let map = wordEls.current.get(blockId);
-    if (!map) {
-      map = new Map<number, HTMLElement>();
-      wordEls.current.set(blockId, map);
-    }
-    if (el) map.set(start, el);
-    else map.delete(start);
-  }, []);
-
-  const activeBlockId = snapshot.status === 'idle' ? null : snapshot.blockId;
-  const activeWordStart = snapshot.wordStart;
-
-  /* ── Layer 2: the golden word pill, measured before paint ── */
-  useLayoutEffect(() => {
-    if (!highlightEnabled || activeBlockId === null || activeWordStart < 0) {
-      lastWordLineRef.current = null;
-      setPill(null);
-      return;
-    }
-    const paraEl = paraRefs.current.get(activeBlockId);
-    const wordEl = wordEls.current.get(activeBlockId)?.get(activeWordStart);
-    if (!paraEl || !wordEl) return;
-
-    const origin = contentOrigin(paraEl);
-    const fontPx = Number.parseFloat(window.getComputedStyle(paraEl).fontSize) || 16;
-    // `boxes[0]` is the first line fragment. An inline span that wraps (a very
-    // long word) would otherwise report a union rect spanning two lines.
-    const [wordBox] = rectsToBoxes([wordEl], origin, {
-      padX: PILL_PAD_X,
-      padY: 0,
-      lineTolerance: 4,
-      joinGap: 0,
-    });
-    if (!wordBox) return;
-
-    const height = Math.round(fontPx * PILL_HEIGHT_RATIO);
-    // A new visual line (or paragraph) must not interpolate the transform: the
-    // straight path from the end of line 1 to the start of line 2 would streak
-    // diagonally across the paragraph. `pillMotion` owns that decision.
-    const motion = pillMotion(lastWordLineRef.current, { blockId: activeBlockId, top: wordBox.top }, fontPx);
-    const snap = motion !== 'glide';
-    lastWordLineRef.current = { blockId: activeBlockId, top: wordBox.top };
-    if (snap) snapSeqRef.current += 1;
-
-    setPill({
-      blockId: activeBlockId,
-      key: snapSeqRef.current,
-      snap,
-      left: wordBox.left,
-      top: wordBox.top + wordBox.height / 2 - height / 2,
-      width: wordBox.width,
-      height,
-    });
-  }, [activeBlockId, activeWordStart, highlightEnabled, fontSize, layoutTick]);
-
-  /* ── Layer 1: the sentence halo, one soft band per wrapped line ── */
-  useLayoutEffect(() => {
-    if (!highlightEnabled || activeBlockId === null || snapshot.sentenceIndex < 0) {
-      setHalo(null);
-      return;
-    }
-    const block = prepared[snapshot.blockIndex];
-    const sentence = block?.id === activeBlockId ? block.sentences[snapshot.sentenceIndex] : undefined;
-    const paraEl = paraRefs.current.get(activeBlockId);
-    const map = wordEls.current.get(activeBlockId);
-    if (!sentence || !paraEl || !map) return;
-
-    const wordElsOfSentence: HTMLElement[] = [];
-    for (const word of sentence.words) {
-      const el = map.get(word.start);
-      if (el) wordElsOfSentence.push(el);
-    }
-    if (!wordElsOfSentence.length) {
-      setHalo(null);
-      return;
-    }
-
-    const fontPx = Number.parseFloat(window.getComputedStyle(paraEl).fontSize) || 16;
-    const boxes = rectsToBoxes(wordElsOfSentence, contentOrigin(paraEl), {
-      padX: HALO_PAD_X,
-      padY: HALO_PAD_Y,
-      // Rects within ~0.6em vertically are the same line; words closer than
-      // ~0.5em apart horizontally join into one band (that is what makes the
-      // spaces *inside* a sentence highlighted but not the trailing slack).
-      lineTolerance: fontPx * 0.6,
-      joinGap: fontPx * 0.5,
-    });
-
-    setHalo((previous) => ({
-      blockId: activeBlockId,
-      boxes,
-      morph:
-        previous !== null &&
-        previous.blockId === activeBlockId &&
-        boxes.length > 0 &&
-        previous.boxes.length === boxes.length,
-    }));
-  }, [
+  /* ── The pill, the halo and the word registry all live in the shared hook ── */
+  const {
+    pill,
+    halo,
+    registerParaEl,
+    registerWordEl,
     activeBlockId,
-    snapshot.blockIndex,
-    snapshot.sentenceIndex,
-    highlightEnabled,
-    fontSize,
-    layoutTick,
+    activeWordStart,
+    activeWordEnd,
+  } = useHighlightLayers({
     prepared,
-  ]);
-
-  /* Keep the word being spoken inside the pane. */
-  useLayoutEffect(() => {
-    const pane = containerRef.current;
-    if (!pane || activeBlockId === null || activeWordStart < 0) return;
-    const wordEl = wordEls.current.get(activeBlockId)?.get(activeWordStart);
-    if (wordEl) ensureVisible(pane, wordEl);
-  }, [activeBlockId, activeWordStart]);
+    snapshot,
+    highlightEnabled,
+    // Font size and zoom invalidate every cached measurement.
+    layoutKey: fontSize,
+    scrollerRef: containerRef,
+  });
 
   /* ── Controls ── */
 
@@ -446,68 +277,6 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
     snapshot.sentenceCount,
     rate,
   ]);
-
-  /**
-   * Render a paragraph as stable word spans.
-   *
-   * Key design decision: each word is its own `<span key={start}>` carrying its
-   * absolute character offset, and the classes applied to it never change glyph
-   * metrics (no font-weight, no padding, no border). Two payoffs:
-   *  1. The active-word highlight cannot reflow the line — if it did, every word
-   *     would shift while the pill is mid-transition toward the old position.
-   *  2. The spans are stable across renders, so React updates one className per
-   *     word instead of remounting the paragraph on every boundary event.
-   */
-  const renderBlock = (block: PreparedBlock, index: number): React.ReactNode[] => {
-    const evidenceRange = evidence[index];
-    const activeStart = activeBlockId === block.id ? activeWordStart : -1;
-    const activeEnd = activeBlockId === block.id ? snapshot.wordEnd : -1;
-
-    const nodes: React.ReactNode[] = [];
-    let runKey = -1;
-    let run: React.ReactNode[] = [];
-    const flushRun = () => {
-      if (runKey < 0) return;
-      nodes.push(
-        <mark key={`ev-${runKey}`} className="ev-run">
-          {run}
-        </mark>
-      );
-      runKey = -1;
-      run = [];
-    };
-
-    for (const token of block.tokens) {
-      const inEvidence =
-        evidenceRange !== null && token.start >= evidenceRange.start && token.end <= evidenceRange.end;
-      if (inEvidence && runKey < 0) runKey = token.start;
-      if (!inEvidence && runKey >= 0) flushRun();
-
-      let node: React.ReactNode;
-      if (token.isWord) {
-        const isActive = activeStart >= 0 && token.start >= activeStart && token.end <= activeEnd;
-        const isEvidenceAnchor = evidenceRange !== null && token.start === evidenceRange.start;
-        node = (
-          <span
-            key={token.start}
-            ref={(el) => registerWordEl(block.id, token.start, el)}
-            data-word={token.start}
-            data-evidence-anchor={isEvidenceAnchor ? '' : undefined}
-            className={isActive ? 'rv-word rv-word--active' : 'rv-word'}
-          >
-            {token.text}
-          </span>
-        );
-      } else {
-        node = token.text;
-      }
-
-      if (inEvidence) run.push(node);
-      else nodes.push(node);
-    }
-    flushRun();
-    return nodes;
-  };
 
   return (
     <div className="bg-white rounded-2xl border-2 border-slate-200 border-b-4 border-b-slate-300 overflow-hidden flex flex-col h-full shadow-xs">
@@ -759,10 +528,7 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
             <div
               key={block.id}
               data-block-id={block.id}
-              ref={(el) => {
-                if (el) paraRefs.current.set(block.id, el);
-                else paraRefs.current.delete(block.id);
-              }}
+              ref={(el) => registerParaEl(block.id, el)}
               className={`relative isolate py-3.5 pr-4 pl-12 transition-colors rounded-2xl ${
                 isTargetPara ? 'bg-[#FFF9E6] border border-[#FFD026]' : ''
               }`}
@@ -809,7 +575,14 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
                 ¶{block.id}
               </button>
 
-              <p className="relative z-[3] leading-relaxed indent-6">{renderBlock(block, index)}</p>
+              <ReadingParagraph
+                block={block}
+                evidence={evidence[index]}
+                activeStart={activeBlockId === block.id ? activeWordStart : -1}
+                activeEnd={activeBlockId === block.id ? activeWordEnd : -1}
+                className="relative z-[3] leading-relaxed indent-6"
+                onWordRef={registerWordEl}
+              />
             </div>
           );
         })}

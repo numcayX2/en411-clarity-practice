@@ -195,6 +195,33 @@
   cursor: default;
 }
 
+/* A glossed business/vocational term. One wrapper per term occurrence, with the
+   word spans nested inside so multi-word terms stay a single control. The
+   dotted underline is part of the resting style — it is never toggled, so it
+   cannot reflow the line while the pill travels; hover/focus only repaint. */
+.rv-vocab {
+  border-bottom: 2px dotted rgb(217 119 6 / 0.65);
+  cursor: help;
+}
+
+.rv-vocab .rv-word {
+  cursor: help;
+}
+
+/* The wrapper owns the hover state, so the plain reading hover stays out of
+   the way inside a hotspot. */
+.rv-vocab .rv-word:hover {
+  background: transparent;
+}
+
+.rv-vocab:hover,
+.rv-vocab:focus-visible {
+  background: rgb(255 247 230 / 0.95);
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgb(255 150 0 / 0.35);
+  border-radius: 3px;
+}
+
 .rv-kbd {
   display: inline-block;
   padding: 0 0.3rem;
