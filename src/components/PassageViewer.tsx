@@ -631,8 +631,8 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
               onClick={toggleVoiceMode}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border-2 select-none ${
                 isMommyVoice
-                  ? 'bg-rose-50 border-rose-300 text-rose-900 border-b-3 shadow-2xs hover:bg-rose-100'
-                  : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200/70 hover:text-slate-700'
+                  ? 'bg-rose-50 border-rose-300 border-b-3 border-b-rose-400 text-rose-900 shadow-2xs hover:bg-rose-100'
+                  : 'bg-slate-50 border-slate-300 border-b-3 border-b-slate-400 text-slate-700 shadow-2xs hover:bg-slate-100'
               }`}
               title={
                 isMommyVoice
@@ -640,10 +640,12 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
                   : 'Mommy Voice Mode is OFF (click to switch to Mommy Voice)'
               }
             >
-              <span className="text-xs" aria-hidden="true">🌸</span>
+              <span className="text-xs" aria-hidden="true">
+                {isMommyVoice ? '🌸' : '🎙️'}
+              </span>
               <span
                 className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
-                  isMommyVoice ? 'bg-rose-400' : 'bg-slate-300'
+                  isMommyVoice ? 'bg-rose-400' : 'bg-slate-400'
                 }`}
               >
                 <span
