@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Nunito:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#F7F9FA] text-slate-800 antialiased font-sans selection:bg-[#58CC02] selection:text-white;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* Fluid typography for high clarity and reading comfort */
+.text-display {
+  font-family: 'Nunito', sans-serif;
+  font-size: clamp(34px, 5.5vw, 68px);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.text-section-title {
+  font-family: 'Nunito', sans-serif;
+  font-size: clamp(24px, 3.5vw, 40px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.text-body-clear {
+  font-size: clamp(15px, 1.1vw, 17px);
+  line-height: 1.7;
+  color: #334155;
+}
+
+/* Tactile Pill Badges */
+.clarity-pill {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-bold text-xs border border-slate-200 select-none;
+}
+
+.clarity-pill-green {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EAF9E7] text-[#347802] font-extrabold text-xs border border-[#58CC02]/30 select-none;
+}
+
+.clarity-pill-blue {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EAF7FF] text-[#0C7BB0] font-extrabold text-xs border border-[#1CB0F6]/30 select-none;
+}
+
+.clarity-pill-gold {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFF7E6] text-[#A65E00] font-extrabold text-xs border border-[#FF9600]/30 select-none;
+}
+
+/* Tactile Cards */
+.tactile-card {
+  @apply bg-white rounded-2xl border-2 border-slate-200 border-b-4 border-b-slate-300 transition-all;
+}
+
+.tactile-card-flat {
+  @apply bg-white rounded-2xl border-2 border-slate-200 shadow-sm transition-all;
+}
+
+/* Tactile Physical Buttons */
+.tactile-btn {
+  @apply inline-flex items-center justify-center font-extrabold rounded-2xl transition-all cursor-pointer select-none active:translate-y-[2px];
+}
+
+.tactile-btn-white {
+  @apply tactile-btn bg-white border-2 border-slate-200 border-b-4 border-b-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:border-b-slate-400 active:border-b-2;
+}
+
+.tactile-btn-green {
+  @apply tactile-btn bg-[#58CC02] border-2 border-[#46A302] border-b-4 border-b-[#46A302] text-white hover:bg-[#61E002] active:border-b-2;
+}
+
+.tactile-btn-blue {
+  @apply tactile-btn bg-[#1CB0F6] border-2 border-[#1899D6] border-b-4 border-b-[#1899D6] text-white hover:bg-[#25B9FF] active:border-b-2;
+}
+
+.tactile-btn-gold {
+  @apply tactile-btn bg-[#FF9600] border-2 border-[#E58700] border-b-4 border-b-[#E58700] text-white hover:bg-[#FFA51E] active:border-b-2;
+}
+
+.tactile-btn-red {
+  @apply tactile-btn bg-[#FF4B4B] border-2 border-[#EA2B2B] border-b-4 border-b-[#EA2B2B] text-white hover:bg-[#FF5C5C] active:border-b-2;
+}
+
+/* Keep jump-to-question targets clear of the sticky chrome */
+[id^="q-act"] {
+  scroll-margin-top: var(--app-chrome-top, 7.5rem);
+}
+
+/* Evidence highlights for reading retention */
+.evidence-highlight {
+  @apply bg-[#FFF7E6] text-amber-950 font-bold px-1.5 py-0.5 rounded border border-amber-300 transition-all duration-300;
+}
+
+.evidence-target {
+  @apply bg-[#FFF0B3] text-amber-950 font-black px-2 py-0.5 rounded-lg border-2 border-[#FFD026] ring-4 ring-[#FFE57F]/50 transition-all duration-300 inline-block;
+}
+
+/* Real-time word highlight during Web Speech read-aloud */
+.spoken-word-mark {
+  @apply bg-[#FFD814] text-slate-950 font-black px-1.5 py-0.5 rounded-md shadow-sm ring-2 ring-[#EAB308] inline-block transition-all duration-75 select-text;
+}
+
+/* Clean, friendly scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}

@@ -1,0 +1,60 @@
+---
+import '../styles/global.css';
+import 'lenis/dist/lenis.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'EN411 Review • Master Every Unit Activity',
+  description = 'Interactive practice and mock exam platform for EN411: English for Further Studies and Future Careers.',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Nunito:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-[#F7F9FA] min-h-screen text-slate-800 antialiased font-sans selection:bg-[#58CC02] selection:text-white">
+    <slot />
+
+    <script>
+      import Lenis from 'lenis';
+
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const lenis = new Lenis({
+          autoRaf: true,
+        });
+
+        // Smooth scroll for in-page anchor links with nav offset
+        document.addEventListener('click', (e) => {
+          const target = (e.target as HTMLElement).closest('a[href^="#"]');
+          if (target) {
+            const href = target.getAttribute('href');
+            if (href && href.length > 1) {
+              const el = document.querySelector(href);
+              if (el) {
+                e.preventDefault();
+                lenis.scrollTo(el as HTMLElement, { offset: -80 });
+              }
+            }
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
+

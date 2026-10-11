@@ -1,0 +1,37 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { FloatingNav } from '../components/landing/FloatingNav';
+import { HeroSection } from '../components/landing/HeroSection';
+import { HowItWorksCarousel } from '../components/landing/HowItWorksCarousel';
+import { IntegrationsArc } from '../components/landing/IntegrationsArc';
+import { BentoGrid } from '../components/landing/BentoGrid';
+import { FaqAccordion } from '../components/landing/FaqAccordion';
+import { CtaBand } from '../components/landing/CtaBand';
+import { Footer } from '../components/landing/Footer';
+---
+
+<Layout title="EN411 Review • Master Every Unit Activity">
+  <!-- 1. Floating nav -->
+  <FloatingNav client:load />
+
+  <!-- 2. Hero -->
+  <HeroSection />
+
+  <!-- 3. How it works -->
+  <HowItWorksCarousel client:load />
+
+  <!-- 4. Integrations arc -->
+  <IntegrationsArc />
+
+  <!-- 5. Operating layer bento -->
+  <BentoGrid />
+
+  <!-- 6. FAQ -->
+  <FaqAccordion client:load />
+
+  <!-- 7. CTA band -->
+  <CtaBand />
+
+  <!-- 8. Footer -->
+  <Footer client:load />
+</Layout>

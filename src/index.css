@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased font-sans selection:bg-primary-200 selection:text-primary-900;
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom passage evidence highlighting with animated glow */
+.evidence-highlight {
+  @apply bg-amber-200/80 text-amber-950 font-medium px-1 py-0.5 rounded transition-all duration-500;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+}
+
+.evidence-target {
+  @apply bg-violet-200/90 text-violet-950 font-medium px-1 py-0.5 rounded transition-all duration-500 ring-2 ring-violet-500/50;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+}
