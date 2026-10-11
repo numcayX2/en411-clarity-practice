@@ -109,6 +109,115 @@
   @apply bg-[#FFD814] text-slate-950 font-black px-1.5 py-0.5 rounded-md shadow-sm ring-2 ring-[#EAB308] inline-block transition-all duration-75 select-text;
 }
 
+/* ───────────────────────── Read-aloud highlight layers ─────────────────────────
+   Three layers, all paint-only. Nothing here changes the metrics of the text
+   (no padding, border, font-weight or font-size on in-flow words), which is what
+   keeps the paragraph from reflowing while the pill glides between words — a
+   moving target rectangle is the usual cause of jittery highlighters.
+   Stacking inside a paragraph: halo (1) < pill (2) < text (3). */
+
+.rv-halo {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  background: rgb(250 204 21 / 0.16);
+  border-radius: 7px;
+}
+
+/* Only applied when the neighbouring sentences have the same line count, so the
+   bands really are the same shapes and the transition tells the truth. */
+.rv-halo--morph {
+  transition:
+    left 0.18s cubic-bezier(0.2, 0.8, 0.25, 1),
+    top 0.18s cubic-bezier(0.2, 0.8, 0.25, 1),
+    width 0.18s cubic-bezier(0.2, 0.8, 0.25, 1),
+    height 0.18s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+.rv-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 6px;
+  background: #ffd814;
+  box-shadow: 0 0 0 2px #eab308, 0 1px 2px rgb(15 23 42 / 0.12);
+  will-change: transform, width;
+}
+
+.rv-pill--glide {
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1),
+    width 0.18s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+/* Line wrap: the pill is remounted at the new word, so the transform is applied
+   instantly (no diagonal streak across the paragraph) and only opacity animates. */
+.rv-pill--snap {
+  animation: rv-pill-land 0.16s ease-out;
+}
+
+@keyframes rv-pill-land {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Evidence ("Locate in Story"): a translucent band so the golden pill stays
+   readable when it crosses the located sentence. */
+.ev-run {
+  background: rgb(255 236 179 / 0.62);
+  box-shadow: inset 0 -2px 0 rgb(255 150 0 / 0.45);
+  color: #78350f;
+  font-weight: 700;
+  border-radius: 4px;
+}
+
+/* One span per word: clickable to read from that point, with stable metrics. */
+.rv-word {
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s linear;
+}
+
+.rv-word:hover {
+  background: rgb(28 176 246 / 0.14);
+}
+
+.rv-word--active,
+.rv-word--active:hover {
+  color: #0f172a;
+  background: transparent; /* the pill is the highlight */
+  cursor: default;
+}
+
+.rv-kbd {
+  display: inline-block;
+  padding: 0 0.3rem;
+  border: 1px solid #cbd5e1;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-pill--glide,
+  .rv-halo--morph {
+    transition: none;
+  }
+  .rv-pill--snap {
+    animation: none;
+  }
+}
+
 /* Clean, friendly scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
