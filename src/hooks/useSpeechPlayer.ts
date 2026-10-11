@@ -57,7 +57,16 @@ export interface SpeechPlayerApi {
   playFrom: (blockId: number, charIndex: number) => void;
 }
 
-export const useSpeechPlayer = (blocks: PreparedBlock[]): SpeechPlayerApi => {
+import type { AudioPassageConfig } from '../data/marieCurieAudio';
+
+export interface UseSpeechPlayerOptions {
+  audioTrack?: AudioPassageConfig;
+}
+
+export const useSpeechPlayer = (
+  blocks: PreparedBlock[],
+  options?: UseSpeechPlayerOptions
+): SpeechPlayerApi => {
   const [snapshot, setSnapshot] = useState<SpeechSnapshot>(INITIAL_SNAPSHOT);
   /**
    * Both of these are browser-only facts, so the *first* render must use the
@@ -82,10 +91,11 @@ export const useSpeechPlayer = (blocks: PreparedBlock[]): SpeechPlayerApi => {
     primeVoices(); // Chrome resolves voices asynchronously; ask early
     const storedRate = readStoredRate();
     setRateState(storedRate);
-    setSupported(isSpeechSupported());
+    setSupported(Boolean(options?.audioTrack || isSpeechSupported()));
     const engine = new SpeechPlayer({
       onUpdate: (next) => setSnapshot(next),
       rate: storedRate,
+      audioTrack: options?.audioTrack,
     });
     engineRef.current = engine;
     engine.load(blocksRef.current);
@@ -93,7 +103,7 @@ export const useSpeechPlayer = (blocks: PreparedBlock[]): SpeechPlayerApi => {
       engine.destroy();
       engineRef.current = null;
     };
-  }, []);
+  }, [options?.audioTrack]);
 
   useEffect(() => {
     engineRef.current?.load(blocksRef.current);

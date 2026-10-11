@@ -39,6 +39,7 @@ import {
   type PreparedBlock,
 } from './readingTokens';
 import { getNaturalVoice, isSpeechSupported, startKeepAlive, stopKeepAlive } from './speech';
+import type { AudioPassageConfig } from '../data/marieCurieAudio';
 
 export type SpeechStatus = 'idle' | 'playing' | 'paused';
 
@@ -94,6 +95,26 @@ interface FlatSentence {
 export interface SpeechPlayerOptions {
   onUpdate?: (snapshot: SpeechSnapshot, change: SpeechChange) => void;
   rate?: number;
+  audioTrack?: AudioPassageConfig;
+}
+
+interface AudioWordEntry {
+  blockIndex: number;
+  blockId: number;
+  sentenceIndex: number;
+  wordIndex: number;
+  wordStart: number;
+  wordEnd: number;
+  audioStart: number;
+  audioEnd: number;
+}
+
+interface AudioSentenceEntry {
+  blockIndex: number;
+  blockId: number;
+  sentenceIndex: number;
+  audioStart: number;
+  audioEnd: number;
 }
 
 /** Retain hard references in JS so Chromium garbage collection never drops active utterances */
@@ -107,6 +128,12 @@ export class SpeechPlayer {
   private flatByBlock: number[][] = [];
   private onUpdate?: (snapshot: SpeechSnapshot, change: SpeechChange) => void;
   private synth: SpeechSynthesis | null = null;
+
+  private audioTrack?: AudioPassageConfig;
+  private audio: HTMLAudioElement | null = null;
+  private audioWords: AudioWordEntry[] = [];
+  private audioSentences: AudioSentenceEntry[] = [];
+  private audioTicker: number | null = null;
 
   /**
    * The utterance the engine is currently running. Held so Chromium cannot
@@ -151,6 +178,26 @@ export class SpeechPlayer {
     this.onUpdate = options.onUpdate;
     this.rate = isSpeechRate(options.rate) ? options.rate : DEFAULT_SPEECH_RATE;
     this.synth = isSpeechSupported() ? window.speechSynthesis : null;
+    if (typeof window !== 'undefined' && options.audioTrack) {
+      this.audioTrack = options.audioTrack;
+      try {
+        const audio = new Audio(options.audioTrack.audioSrc);
+        audio.preload = 'auto';
+        audio.playbackRate = this.rate;
+        audio.onended = () => {
+          this.stopAudioTicker();
+          this.finish();
+        };
+        audio.onerror = () => {
+          console.warn('Audio track error; falling back to Web Speech API');
+          this.audioTrack = undefined;
+          this.audio = null;
+        };
+        this.audio = audio;
+      } catch {
+        /* audio element not available */
+      }
+    }
   }
 
   /* ─────────────────────────────── Public API ─────────────────────────────── */
@@ -169,6 +216,49 @@ export class SpeechPlayer {
       });
       this.flatByBlock.push(map);
     });
+
+    if (this.audioTrack) {
+      this.audioWords = [];
+      this.audioSentences = [];
+      blocks.forEach((block, blockIndex) => {
+        const pTiming = this.audioTrack?.paragraphs.find((p) => p.paragraphId === block.id);
+        if (!pTiming) return;
+
+        block.sentences.forEach((sentence, sentenceIndex) => {
+          let sStart = Infinity;
+          let sEnd = 0;
+
+          sentence.words.forEach((word, wordIndex) => {
+            const wTiming = pTiming.words.find((tw) => tw.start === word.start);
+            if (wTiming) {
+              this.audioWords.push({
+                blockIndex,
+                blockId: block.id,
+                sentenceIndex,
+                wordIndex,
+                wordStart: word.start,
+                wordEnd: word.end,
+                audioStart: wTiming.audioStart,
+                audioEnd: wTiming.audioEnd,
+              });
+              sStart = Math.min(sStart, wTiming.audioStart);
+              sEnd = Math.max(sEnd, wTiming.audioEnd);
+            }
+          });
+
+          if (sStart < Infinity) {
+            this.audioSentences.push({
+              blockIndex,
+              blockId: block.id,
+              sentenceIndex,
+              audioStart: sStart,
+              audioEnd: sEnd,
+            });
+          }
+        });
+      });
+    }
+
     this.resetPosition();
     this.setStatus('idle');
     this.emit('status');
@@ -191,17 +281,43 @@ export class SpeechPlayer {
   }
 
   play(): void {
-    if (this.status === 'playing' || !this.synth) return;
+    if (this.status === 'playing') return;
     if (this.status === 'paused') {
       this.resume();
       return;
     }
+    if (this.audio && this.audioTrack) {
+      this.audio.playbackRate = this.rate;
+      if (this.wordIndex >= 0 && this.blockIndex >= 0) {
+        const curWord = this.audioWords.find(
+          (w) => w.blockIndex === this.blockIndex && w.wordIndex === this.wordIndex
+        );
+        if (curWord) {
+          this.audio.currentTime = curWord.audioStart;
+        }
+      }
+      this.audio.play().then(() => {
+        this.setStatus('playing');
+        this.startAudioTicker();
+      }).catch((err) => {
+        console.warn('Audio play failed:', err);
+      });
+      return;
+    }
+    if (!this.synth) return;
     // Resume where we were if playback was stopped mid-passage, else from the top.
     this.begin(this.flatIdx >= 0 ? this.flatIdx : 0, this.wordIndex >= 0 ? this.wordIndex : 0);
   }
 
   pause(): void {
-    if (this.status !== 'playing' || !this.synth) return;
+    if (this.status !== 'playing') return;
+    if (this.audio && this.audioTrack) {
+      this.audio.pause();
+      this.stopAudioTicker();
+      this.setStatus('paused');
+      return;
+    }
+    if (!this.synth) return;
     if (this.advanceTimer !== null) {
       window.clearTimeout(this.advanceTimer);
       this.advanceTimer = null;
@@ -232,7 +348,18 @@ export class SpeechPlayer {
   }
 
   resume(): void {
-    if (this.status !== 'paused' || !this.synth) return;
+    if (this.status !== 'paused') return;
+    if (this.audio && this.audioTrack) {
+      this.audio.playbackRate = this.rate;
+      this.audio.play().then(() => {
+        this.setStatus('playing');
+        this.startAudioTicker();
+      }).catch((err) => {
+        console.warn('Audio resume failed:', err);
+      });
+      return;
+    }
+    if (!this.synth) return;
     this.paused = false;
     if (this.resumeWord < 0 && (this.synth.speaking || this.synth.paused)) {
       // Native pause held: shift the estimate's time base by the paused span so
@@ -259,6 +386,15 @@ export class SpeechPlayer {
   }
 
   stop(): void {
+    if (this.audio && this.audioTrack) {
+      this.audio.pause();
+      this.audio.currentTime = 0;
+      this.stopAudioTicker();
+      this.resetPosition();
+      this.setStatus('idle');
+      this.emit('status');
+      return;
+    }
     this.abort();
     this.resetPosition();
     this.setStatus('idle');
@@ -267,6 +403,28 @@ export class SpeechPlayer {
 
   /** Move by whole sentences; also starts playback when nothing is running. */
   skipSentence(delta: number): void {
+    if (this.audio && this.audioTrack && this.audioSentences.length) {
+      const curIdx = this.audioSentences.findIndex(
+        (s) => s.blockIndex === this.blockIndex && s.sentenceIndex === this.sentenceIndex
+      );
+      const targetIdx = clamp(
+        (curIdx >= 0 ? curIdx : delta > 0 ? -1 : this.audioSentences.length) + delta,
+        0,
+        this.audioSentences.length - 1
+      );
+      const target = this.audioSentences[targetIdx];
+      if (target) {
+        this.audio.currentTime = target.audioStart;
+        this.blockIndex = target.blockIndex;
+        this.sentenceIndex = target.sentenceIndex;
+        this.emit('sentence');
+        this.tickAudio();
+        if (this.status !== 'playing') {
+          this.play();
+        }
+      }
+      return;
+    }
     if (!this.flat.length || !this.synth) return;
     const from = this.flatIdx >= 0 ? this.flatIdx : delta > 0 ? -1 : this.flat.length;
     this.begin(clamp(from + delta, 0, this.flat.length - 1), 0);
@@ -274,6 +432,22 @@ export class SpeechPlayer {
 
   /** Start reading at `charIndex` inside the block with this id. */
   playFrom(blockId: number, charIndex: number): void {
+    if (this.audio && this.audioTrack && this.audioWords.length) {
+      const w = this.audioWords.find((item) => item.blockId === blockId && item.wordStart >= charIndex)
+        || this.audioWords.find((item) => item.blockId === blockId);
+      if (w) {
+        this.audio.currentTime = w.audioStart;
+        this.blockIndex = w.blockIndex;
+        this.sentenceIndex = w.sentenceIndex;
+        this.wordIndex = w.wordIndex;
+        this.emit('sentence');
+        this.emit('word');
+        if (this.status !== 'playing') {
+          this.play();
+        }
+      }
+      return;
+    }
     if (!this.synth) return;
     const blockIndex = this.blocks.findIndex((block) => block.id === blockId);
     if (blockIndex < 0) return;
@@ -291,6 +465,11 @@ export class SpeechPlayer {
     const next = isSpeechRate(rate) ? rate : DEFAULT_SPEECH_RATE;
     if (next === this.rate) return;
     this.rate = next;
+    if (this.audio && this.audioTrack) {
+      this.audio.playbackRate = next;
+      this.emit('status');
+      return;
+    }
     if (this.status === 'playing' && this.flatIdx >= 0) {
       this.begin(this.flatIdx, Math.max(0, this.wordIndex), false);
     } else {
@@ -299,10 +478,18 @@ export class SpeechPlayer {
   }
 
   destroy(): void {
+    if (this.audio) {
+      this.audio.pause();
+      this.stopAudioTicker();
+      this.audio.src = '';
+      this.audio = null;
+    }
     this.abort();
     this.blocks = [];
     this.flat = [];
     this.flatByBlock = [];
+    this.audioWords = [];
+    this.audioSentences = [];
     this.onUpdate = undefined;
     this.resetPosition();
     this.status = 'idle';
@@ -574,7 +761,57 @@ export class SpeechPlayer {
    * `cancelSynth: false` skips `speechSynthesis.cancel()`, which is both wasteful
    * and risky (Chromium can drop a queued utterance that follows a cancel).
    */
+  private startAudioTicker(): void {
+    if (this.audioTicker !== null) return;
+    this.audioTicker = window.setInterval(() => this.tickAudio(), 25);
+  }
+
+  private stopAudioTicker(): void {
+    if (this.audioTicker === null) return;
+    window.clearInterval(this.audioTicker);
+    this.audioTicker = null;
+  }
+
+  private tickAudio(): void {
+    if (!this.audio || this.status !== 'playing') return;
+    const t = this.audio.currentTime;
+
+    let found = -1;
+    for (let i = 0; i < this.audioWords.length; i++) {
+      const w = this.audioWords[i];
+      if (t >= w.audioStart && t <= w.audioEnd) {
+        found = i;
+        break;
+      }
+      if (i < this.audioWords.length - 1 && t > w.audioEnd && t < this.audioWords[i + 1].audioStart) {
+        found = i;
+        break;
+      }
+    }
+
+    if (found >= 0) {
+      const current = this.audioWords[found];
+      const sentenceChanged = current.blockIndex !== this.blockIndex || current.sentenceIndex !== this.sentenceIndex;
+      const wordChanged = current.wordIndex !== this.wordIndex || sentenceChanged;
+
+      this.blockIndex = current.blockIndex;
+      this.sentenceIndex = current.sentenceIndex;
+      this.wordIndex = current.wordIndex;
+
+      if (sentenceChanged) {
+        this.emit('sentence');
+      }
+      if (wordChanged) {
+        this.emit('word');
+      }
+    }
+  }
+
   private abort(cancelSynth = true): void {
+    this.stopAudioTicker();
+    if (this.audio && this.audioTrack && this.status === 'playing') {
+      this.audio.pause();
+    }
     if (this.startupTimer !== null) {
       window.clearTimeout(this.startupTimer);
       this.startupTimer = null;

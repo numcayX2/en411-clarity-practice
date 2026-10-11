@@ -24,6 +24,7 @@ import {
 } from '../utils/readingTokens';
 import { SPEECH_RATES, type SpeechRate } from '../utils/ttsPlayer';
 import { useSpeechPlayer } from '../hooks/useSpeechPlayer';
+import type { AudioPassageConfig } from '../data/marieCurieAudio';
 
 interface Paragraph {
   id: number;
@@ -37,6 +38,7 @@ interface PassageViewerProps {
   highlightQuote?: string | null;
   highlightParagraphId?: number | null;
   onClearHighlight?: () => void;
+  audioTrack?: AudioPassageConfig;
 }
 
 type FontSize = 'sm' | 'base' | 'lg';
@@ -116,6 +118,7 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
   highlightQuote,
   highlightParagraphId,
   onClearHighlight,
+  audioTrack,
 }) => {
   const [fontSize, setFontSize] = useState<FontSize>('base');
   /** SSR-safe default; the persisted preference is applied after mount (below). */
@@ -144,7 +147,7 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
     [paragraphs]
   );
   const { snapshot, rate, setRate, supported, play, pause, resume, skipSentence, stop, playFrom } =
-    useSpeechPlayer(prepared);
+    useSpeechPlayer(prepared, { audioTrack });
 
   /* ── Evidence: quote → character range → whole-word range ── */
   const evidence = useMemo(
