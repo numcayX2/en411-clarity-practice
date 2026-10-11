@@ -39,6 +39,7 @@ interface PassageViewerProps {
   highlightParagraphId?: number | null;
   onClearHighlight?: () => void;
   audioTrack?: AudioPassageConfig;
+  mommyAudioTrack?: AudioPassageConfig;
 }
 
 type FontSize = 'sm' | 'base' | 'lg';
@@ -46,6 +47,17 @@ type FontSize = 'sm' | 'base' | 'lg';
 /** Shared with Activity4 — both panes mirror the same highlight preference. */
 const HIGHLIGHT_STORAGE_KEY = 'en411_highlight_enabled';
 const HIGHLIGHT_EVENT = 'en411_highlight_change';
+const VOICE_MODE_STORAGE_KEY = 'en411_voice_mode';
+
+const readStoredVoiceMode = (): boolean => {
+  if (typeof window === 'undefined') return true;
+  try {
+    const saved = window.localStorage.getItem(VOICE_MODE_STORAGE_KEY);
+    return saved === null ? true : saved === 'mommy';
+  } catch {
+    return true;
+  }
+};
 
 const FONT_CLASS: Record<FontSize, string> = {
   sm: 'text-sm leading-relaxed',
@@ -119,10 +131,12 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
   highlightParagraphId,
   onClearHighlight,
   audioTrack,
+  mommyAudioTrack,
 }) => {
   const [fontSize, setFontSize] = useState<FontSize>('base');
   /** SSR-safe default; the persisted preference is applied after mount (below). */
   const [highlightEnabled, setHighlightEnabled] = useState<boolean>(true);
+  const [isMommyVoice, setIsMommyVoice] = useState<boolean>(true);
   const [pill, setPill] = useState<PillState | null>(null);
   const [halo, setHalo] = useState<HaloState | null>(null);
   /** Bumped by the ResizeObserver: any layout change invalidates measurements. */
@@ -141,13 +155,34 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
 
   const helpId = useId();
 
+  useEffect(() => {
+    setIsMommyVoice(readStoredVoiceMode());
+  }, []);
+
+  const toggleVoiceMode = useCallback(() => {
+    setIsMommyVoice((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(VOICE_MODE_STORAGE_KEY, next ? 'mommy' : 'classic');
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+
+  const activeAudioTrack = useMemo(() => {
+    if (!mommyAudioTrack) return audioTrack;
+    return isMommyVoice ? mommyAudioTrack : (audioTrack || mommyAudioTrack);
+  }, [mommyAudioTrack, audioTrack, isMommyVoice]);
+
   /* ── Text analysis: tokens, sentences and the speech-unit schedule ── */
   const prepared = useMemo(
     () => paragraphs.map((paragraph) => prepareBlock(paragraph.id, paragraph.text)),
     [paragraphs]
   );
   const { snapshot, rate, setRate, supported, play, pause, resume, skipSentence, stop, playFrom } =
-    useSpeechPlayer(prepared, { audioTrack });
+    useSpeechPlayer(prepared, { audioTrack: activeAudioTrack });
 
   /* ── Evidence: quote → character range → whole-word range ── */
   const evidence = useMemo(
@@ -587,6 +622,42 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
             </span>
           </button>
 
+          {/* Mommy Voice Mode Toggle Switch */}
+          {mommyAudioTrack && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isMommyVoice}
+              onClick={toggleVoiceMode}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border-2 select-none ${
+                isMommyVoice
+                  ? 'bg-rose-50 border-rose-300 text-rose-900 border-b-3 shadow-2xs hover:bg-rose-100'
+                  : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200/70 hover:text-slate-700'
+              }`}
+              title={
+                isMommyVoice
+                  ? 'Mommy Voice Mode is ON 🌸 (click to switch to Classic Narrator)'
+                  : 'Mommy Voice Mode is OFF (click to switch to Mommy Voice)'
+              }
+            >
+              <span className="text-xs" aria-hidden="true">🌸</span>
+              <span
+                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                  isMommyVoice ? 'bg-rose-400' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                    isMommyVoice ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+              <span className="text-[11px] font-extrabold tracking-tight">
+                {isMommyVoice ? 'Mommy Voice' : 'Classic Voice'}
+              </span>
+            </button>
+          )}
+
           {/* Transport */}
           <div className="flex items-center gap-0.5 bg-white border-2 border-slate-200 rounded-xl p-0.5 shadow-2xs">
             <button
@@ -604,7 +675,11 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
               onClick={handlePrimary}
               disabled={!supported}
               className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all cursor-pointer disabled:opacity-50 ${
-                snapshot.status === 'playing' ? 'tactile-btn-red' : 'tactile-btn-blue'
+                snapshot.status === 'playing'
+                  ? 'tactile-btn-red'
+                  : isMommyVoice
+                    ? 'bg-rose-500 hover:bg-rose-600 text-white border-2 border-rose-600 border-b-4 border-b-rose-700 shadow-2xs active:translate-y-0.5'
+                    : 'tactile-btn-blue'
               }`}
               title={
                 !supported
@@ -613,7 +688,9 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
                     ? 'Pause reading'
                     : snapshot.status === 'paused'
                       ? 'Resume reading'
-                      : 'Read the passage aloud'
+                      : isMommyVoice
+                        ? 'Read passage aloud with Mommy Voice 🌸'
+                        : 'Read the passage aloud'
               }
             >
               {snapshot.status === 'playing' ? (
@@ -628,8 +705,12 @@ export const PassageViewer: React.FC<PassageViewerProps> = ({
                 </>
               ) : (
                 <>
-                  <Volume2 className="w-3.5 h-3.5" />
-                  <span>Listen</span>
+                  {isMommyVoice ? (
+                    <span className="text-xs" aria-hidden="true">🌸</span>
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isMommyVoice ? 'Mommy Listen' : 'Listen'}</span>
                 </>
               )}
             </button>

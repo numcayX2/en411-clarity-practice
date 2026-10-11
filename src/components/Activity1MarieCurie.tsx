@@ -4,7 +4,7 @@ import { PassageViewer } from './PassageViewer';
 import { CheckCircle2, XCircle, Flag, Search, Volume2 } from 'lucide-react';
 import { speakText } from '../utils/speech';
 import { animateCardsEntrance } from '../utils/animations';
-import { MARIE_CURIE_AUDIO } from '../data/marieCurieAudio';
+import { MARIE_CURIE_DEFAULT_AUDIO, MARIE_CURIE_MOMMY_AUDIO } from '../data/marieCurieAudio';
 
 interface Activity1Props {
   answers: Record<string, string>;
@@ -47,7 +47,8 @@ export const Activity1MarieCurie: React.FC<Activity1Props> = ({
           highlightQuote={activeHighlight.quote}
           highlightParagraphId={activeHighlight.paragraphId}
           onClearHighlight={() => onSetHighlight(null, null)}
-          audioTrack={MARIE_CURIE_AUDIO}
+          audioTrack={MARIE_CURIE_DEFAULT_AUDIO}
+          mommyAudioTrack={MARIE_CURIE_MOMMY_AUDIO}
         />
       </div>
 
