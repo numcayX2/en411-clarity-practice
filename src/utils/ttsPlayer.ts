@@ -69,7 +69,7 @@ export const isSpeechRate = (value: unknown): value is SpeechRate =>
  * speech unit at `rate = 1`. Only a starting guess: the EMA below replaces it
  * with the real pace after a couple of words.
  */
-const MS_PER_UNIT = 59;
+const MS_PER_UNIT = 70;
 const MIN_MS_PER_UNIT = 14;
 const MAX_MS_PER_UNIT = 260;
 /** Weight of a fresh observation when adapting the pace. */
@@ -131,6 +131,7 @@ export class SpeechPlayer {
   private lastBoundaryAt = Number.NEGATIVE_INFINITY;
   private speakingSince = 0;
   private estimating = false;
+  private isSpeaking = false;
 
   private paused = false;
   private pausedAt = 0;
@@ -139,6 +140,8 @@ export class SpeechPlayer {
 
   private ticker: number | null = null;
   private pauseVerify: number | null = null;
+  private advanceTimer: number | null = null;
+  private speakDelayTimer: number | null = null;
 
   constructor(options: SpeechPlayerOptions = {}) {
     this.onUpdate = options.onUpdate;
@@ -195,6 +198,10 @@ export class SpeechPlayer {
 
   pause(): void {
     if (this.status !== 'playing' || !this.synth) return;
+    if (this.advanceTimer !== null) {
+      window.clearTimeout(this.advanceTimer);
+      this.advanceTimer = null;
+    }
     const synth = this.synth;
     this.paused = true;
     this.pausedAt = performance.now();
@@ -223,7 +230,7 @@ export class SpeechPlayer {
   resume(): void {
     if (this.status !== 'paused' || !this.synth) return;
     this.paused = false;
-    if (this.resumeWord < 0) {
+    if (this.resumeWord < 0 && (this.synth.speaking || this.synth.paused)) {
       // Native pause held: shift the estimate's time base by the paused span so
       // the highlight continues where it left off instead of jumping ahead.
       this.originT += performance.now() - this.pausedAt;
@@ -236,9 +243,9 @@ export class SpeechPlayer {
       }
       return;
     }
-    const word = this.resumeWord;
+    const word = this.resumeWord >= 0 ? this.resumeWord : (this.wordIndex >= 0 ? this.wordIndex : 0);
     this.resumeWord = -1;
-    this.begin(this.flatIdx, word < 0 ? 0 : word);
+    this.begin(this.flatIdx, word);
   }
 
   toggle(): void {
@@ -281,7 +288,7 @@ export class SpeechPlayer {
     if (next === this.rate) return;
     this.rate = next;
     if (this.status === 'playing' && this.flatIdx >= 0) {
-      this.begin(this.flatIdx, Math.max(0, this.wordIndex), true);
+      this.begin(this.flatIdx, Math.max(0, this.wordIndex), false);
     } else {
       this.emit('status');
     }
@@ -326,9 +333,17 @@ export class SpeechPlayer {
   }
 
   private advance(): void {
-    // Advancing from `onend` means the engine is already idle — skipping the
-    // cancel avoids a known Chromium race where cancel() swallows the next speak().
-    this.begin(this.flatIdx + 1, 0, this.status === 'playing');
+    if (this.advanceTimer !== null) {
+      window.clearTimeout(this.advanceTimer);
+      this.advanceTimer = null;
+    }
+    if (this.status !== 'playing') return;
+    // Brief natural pause between sentences (~160ms) which also gives the browser speech queue time to clear.
+    this.advanceTimer = window.setTimeout(() => {
+      this.advanceTimer = null;
+      if (this.status !== 'playing') return;
+      this.begin(this.flatIdx + 1, 0, true);
+    }, 160);
   }
 
   private finish(): void {
@@ -346,17 +361,33 @@ export class SpeechPlayer {
       this.finish();
       return;
     }
-    if (!skipCancel) this.abort();
-    else this.abort(false);
 
-    const utterance = new SpeechSynthesisUtterance(block.text.slice(from, to));
-    utterance.lang = 'en-US';
+    const textToSpeak = block.text.slice(from, to);
+    if (!textToSpeak.trim()) {
+      this.advance();
+      return;
+    }
+
+    const hadActiveSpeech = Boolean(synth.speaking || synth.pending);
+    if (!skipCancel && hadActiveSpeech) {
+      this.abort(true);
+    } else {
+      this.abort(false);
+    }
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = this.rate;
     utterance.pitch = 1;
     const voice = getNaturalVoice();
-    if (voice) utterance.voice = voice;
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang || 'en-US';
+    } else {
+      utterance.lang = 'en-US';
+    }
 
     this.utterance = utterance;
+    this.isSpeaking = false;
     this.units = block.units;
     this.base = from;
     this.rangeEnd = to;
@@ -369,10 +400,9 @@ export class SpeechPlayer {
 
     utterance.onstart = () => {
       if (this.utterance !== utterance) return;
-      // The range always starts on a word boundary, so "now" is estimate zero.
-      // This absorbs the engine's start-up latency (a big win on Firefox, where
-      // the estimate is the only source of word timing).
+      this.isSpeaking = true;
       this.originT = performance.now();
+      this.speakingSince = this.originT;
     };
 
     utterance.onboundary = (event) => {
@@ -383,25 +413,47 @@ export class SpeechPlayer {
 
     utterance.onend = () => {
       if (this.utterance !== utterance) return;
+      this.isSpeaking = false;
       this.advance();
     };
 
-    utterance.onerror = () => {
-      // Reached only when this utterance is still the current one, i.e. we did
-      // not abort it ourselves — so either the engine failed, or a foreign
-      // caller cancelled global speech (`speakText` is shared with the activity
-      // panels). Either way this range is dead: continue at the next sentence.
+    utterance.onerror = (event) => {
       if (this.utterance !== utterance) return;
-      this.advance();
+      this.isSpeaking = false;
+      // Canceled or interrupted events are expected when switching sentences or stopping.
+      if (event.error === 'canceled' || event.error === 'interrupted') {
+        return;
+      }
+      console.warn('Speech synthesis error:', event.error);
+      this.stop();
     };
 
     this.setStatus('playing');
-    try {
-      synth.speak(utterance);
-    } catch {
-      this.advance();
-      return;
+
+    const startSpeaking = () => {
+      this.speakDelayTimer = null;
+      if (this.utterance !== utterance || this.status !== 'playing') return;
+      if (synth.paused) {
+        try {
+          synth.resume();
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        synth.speak(utterance);
+      } catch (err) {
+        console.warn('Speech synthesis speak call failed:', err);
+        this.stop();
+      }
+    };
+
+    if (hadActiveSpeech && !skipCancel) {
+      this.speakDelayTimer = window.setTimeout(startSpeaking, 25);
+    } else {
+      startSpeaking();
     }
+
     this.emit('word'); // show the first word immediately, don't wait for a boundary
   }
 
@@ -447,9 +499,17 @@ export class SpeechPlayer {
 
     const now = performance.now();
 
-    // Watchdog: the engine holds neither a speaking nor a queued utterance, so
-    // it will never fire `onend` (cold-start failure, dropped utterance, cloud
-    // voice error). Move on instead of stalling the whole passage.
+    // Guard: Audio has not started speaking yet.
+    // Keep highlight on the first word; do not advance through the sentence while silent.
+    if (!this.isSpeaking) {
+      if (!synth.speaking && !synth.pending && now - this.speakingSince > 3500) {
+        // Synthesis never started after 3.5s
+        this.stop();
+      }
+      return;
+    }
+
+    // Watchdog: audio was speaking, but now neither speaking nor queued, and onend was dropped
     if (!synth.speaking && !synth.pending && now - this.speakingSince > STALL_GRACE_MS) {
       this.advance();
       return;
@@ -489,7 +549,16 @@ export class SpeechPlayer {
    * and risky (Chromium can drop a queued utterance that follows a cancel).
    */
   private abort(cancelSynth = true): void {
+    if (this.advanceTimer !== null) {
+      window.clearTimeout(this.advanceTimer);
+      this.advanceTimer = null;
+    }
+    if (this.speakDelayTimer !== null) {
+      window.clearTimeout(this.speakDelayTimer);
+      this.speakDelayTimer = null;
+    }
     this.utterance = null;
+    this.isSpeaking = false;
     this.estimating = false;
     this.stopTicker();
     this.setKeepAlive(false);
@@ -500,10 +569,12 @@ export class SpeechPlayer {
       this.pauseVerify = null;
     }
     if (cancelSynth && this.synth) {
-      try {
-        this.synth.cancel();
-      } catch {
-        /* ignore */
+      if (this.synth.speaking || this.synth.pending) {
+        try {
+          this.synth.cancel();
+        } catch {
+          /* ignore */
+        }
       }
     }
   }

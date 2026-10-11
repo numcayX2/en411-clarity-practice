@@ -38,8 +38,8 @@ export const isSpeechSupported = (): boolean =>
 
 /** Higher score wins; the order encodes how natural the voices sound. */
 const VOICE_RANK: Record<string, number> = {
-  natural: 6, neural: 6, premium: 5, enhanced: 5,
-  google: 4, samantha: 3, jenny: 3, aria: 3, guy: 3, ryan: 3, libby: 3, sonia: 3,
+  natural: 6, neural: 6, microsoft: 5, david: 5, zira: 5, mark: 5,
+  samantha: 4, jenny: 4, aria: 4, guy: 4, premium: 3, enhanced: 3, google: 2,
 };
 
 let cachedVoice: SpeechSynthesisVoice | null = null;
@@ -52,8 +52,9 @@ const scoreVoice = (voice: SpeechSynthesisVoice): number => {
   for (const key of Object.keys(VOICE_RANK)) {
     if (name.includes(key)) score = Math.max(score, VOICE_RANK[key]);
   }
-  if (voice.localService) score += 0.5; // no network round-trip, no Chunked stall
-  if (voice.default) score += 0.25;
+  // Strongly prioritize localService: they work offline with 0 network latency and never fail
+  if (voice.localService) score += 10;
+  if (voice.default) score += 2;
   return score;
 };
 
