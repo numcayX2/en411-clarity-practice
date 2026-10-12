@@ -17,7 +17,7 @@ export interface AudioPassageConfig {
 }
 
 export const MARIE_CURIE_DEFAULT_AUDIO: AudioPassageConfig = {
-  "audioSrc": "/audio/marie-curie.mp3",
+  "audioSrc": "/audio/marie-curie-default.mp3",
   "duration": 95.6,
   "paragraphs": [
     {
